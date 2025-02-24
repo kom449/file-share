@@ -186,11 +186,9 @@ app.post("/download/:fileId", (req: Request, res: Response) => {
         return res.status(404).json({ error: "File not found on server" });
       }
   
-      // Manually set the Content-Disposition header to ensure the filename is correct.
       res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(originalFilename)}"`);
       res.setHeader("Content-Type", "application/octet-stream");
   
-      // Use res.download to stream the file.
       res.download(filePath, originalFilename, (err) => {
         if (err) {
           console.error("❌ Download Error:", err);

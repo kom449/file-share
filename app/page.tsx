@@ -75,7 +75,6 @@ export default function Home() {
             { responseType: "blob" }
           );
   
-          // Now that Content-Disposition is exposed, extract the filename
           const disposition = downloadResponse.headers["content-disposition"];
           let filename = "downloaded_file";
           if (disposition && disposition.includes("filename")) {

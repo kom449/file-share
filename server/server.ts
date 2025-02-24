@@ -37,8 +37,8 @@ const db = mysql.createPool({
 });
 
 db.getConnection()
-    .then(() => console.log("✅ Connected to MySQL"))
-    .catch(err => console.error("❌ MySQL connection error:", err));
+    .then(() => console.log("Connected to MySQL"))
+    .catch(err => console.error("MySQL connection error:", err));
 
 const storage = multer.diskStorage({
     destination: (req, file, cb) => cb(null, uploadDir),
@@ -55,7 +55,6 @@ app.post("/upload", upload.single("file"), async (req: Request, res: Response) =
 
     try {
         if (!req.file) {
-            console.error("❌ Upload Error: No file received.");
             res.status(400).json({ error: "No file uploaded" });
             return;
         }
@@ -71,25 +70,17 @@ app.post("/upload", upload.single("file"), async (req: Request, res: Response) =
 
         const filePath = path.resolve(uploadDir, req.file.filename);
         const fileUrl = `http://localhost:${PORT}/download/${fileId}`;
-
-        console.log(`✅ Upload Successful!`);
-        console.log(`📂 File Path: ${filePath}`);
-        console.log(`🆔 File ID: ${fileId}`);
-
         await connection.beginTransaction();
-
         await connection.query(
             "INSERT INTO files (id, filename, path, url, password_hash, upload_date) VALUES (?, ?, ?, ?, ?, NOW())",
             [fileId, req.file.filename, filePath, fileUrl, passwordHash]
         );
 
         await connection.commit();
-        console.log(`✅ Saved to database: ${fileId}`);
-
         res.json({ fileUrl });
     } catch (err) {
         await connection.rollback();
-        console.error("❌ Upload Error:", err);
+        console.error("Upload Error:", err);
         res.status(500).json({ error: "Database error" });
     } finally {
         connection.release();
@@ -98,12 +89,9 @@ app.post("/upload", upload.single("file"), async (req: Request, res: Response) =
 
 app.get("/download/:fileId", async (req: Request, res: Response) => {
     try {
-        console.log(`🔍 Attempting to download file ID: ${req.params.fileId}`);
-
         const [rows]: any = await db.query("SELECT filename, path, password_hash FROM files WHERE id = ?", [req.params.fileId]);
 
         if (rows.length === 0) {
-            console.error(`❌ File ID not found in database: ${req.params.fileId}`);
             res.status(404).json({ error: "File not found" });
             return;
         }
@@ -116,10 +104,7 @@ app.get("/download/:fileId", async (req: Request, res: Response) => {
         const filePath = rows[0].path;
         const originalFilename = rows[0].filename;
 
-        console.log(`📂 Checking file path: ${filePath}`);
-
         if (!fs.existsSync(filePath)) {
-            console.error(`❌ File missing on disk: ${filePath}`);
             res.status(404).json({ error: "File not found on server" });
             return;
         }
@@ -128,35 +113,27 @@ app.get("/download/:fileId", async (req: Request, res: Response) => {
         res.setHeader("Content-Type", "application/octet-stream");
         res.download(filePath, originalFilename);
     } catch (err) {
-        console.error("❌ Download Error:", err);
         res.status(500).json({ error: "Internal server error" });
     }
 });
 
 app.get("/check-password/:fileId", async (req: Request, res: Response) => {
     try {
-        console.log(`🔍 Checking password for File ID: ${req.params.fileId}`);
-
         const [rows]: any = await db.query("SELECT password_hash FROM files WHERE id = ?", [req.params.fileId]);
 
         if (rows.length === 0) {
-            console.error(`❌ File ID not found in database: ${req.params.fileId}`);
             res.status(404).json({ error: "File not found" });
             return;
         }
 
-        console.log(`✅ File found, password required: ${!!rows[0].password_hash}`);
         res.json({ requiresPassword: !!rows[0].password_hash });
     } catch (err) {
-        console.error("❌ Check Password Error:", err);
         res.status(500).json({ error: "Internal server error" });
     }
 });
 
 app.post("/download/:fileId", (req: Request, res: Response) => {
-    (async () => {
-      console.log(`🔍 Attempting to download password-protected file ID: ${req.params.fileId}`);
-  
+    (async () => {  
       const { password } = req.body;
       const [rows]: any = await db.query(
         "SELECT filename, path, password_hash FROM files WHERE id = ?",
@@ -164,7 +141,6 @@ app.post("/download/:fileId", (req: Request, res: Response) => {
       );
   
       if (rows.length === 0) {
-        console.error(`❌ File ID not found in database: ${req.params.fileId}`);
         return res.status(404).json({ error: "File not found" });
       }
   
@@ -180,9 +156,7 @@ app.post("/download/:fileId", (req: Request, res: Response) => {
       const filePath = rows[0].path;
       const originalFilename = rows[0].filename;
   
-      console.log(`📂 Checking file path: ${filePath}`);
       if (!fs.existsSync(filePath)) {
-        console.error(`❌ File missing on disk: ${filePath}`);
         return res.status(404).json({ error: "File not found on server" });
       }
   
@@ -191,15 +165,13 @@ app.post("/download/:fileId", (req: Request, res: Response) => {
   
       res.download(filePath, originalFilename, (err) => {
         if (err) {
-          console.error("❌ Download Error:", err);
           return res.status(500).json({ error: "Internal server error" });
         }
       });
     })().catch(err => {
-      console.error("❌ Download Error:", err);
       res.status(500).json({ error: "Internal server error" });
     });
   });
   
 
-app.listen(PORT, () => console.log(`🚀 Server running on http://localhost:${PORT}`));
+app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));

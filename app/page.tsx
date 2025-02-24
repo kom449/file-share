@@ -74,7 +74,7 @@ export default function Home() {
       if (response.data.requiresPassword) {
         setRequiresPassword(true);
       } else {
-        handleDownload();
+        window.location.href = `http://localhost:5000/download/${downloadFileId}`;
       }
     } catch (error) {
       setDownloadError("File not found.");
@@ -85,22 +85,33 @@ export default function Home() {
     setDownloadError("");
 
     try {
-      const response = await axios.post(`http://localhost:5000/download/${downloadFileId}`, { password: downloadPassword });
+        if (requiresPassword) {
+            // ✅ Send password in a POST request
+            const response = await axios.post(
+                `http://localhost:5000/download/${downloadFileId}`,
+                { password: downloadPassword },
+                { responseType: "blob" }
+            );
 
-      if (response.status === 200) {
-        const blob = new Blob([response.data]);
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = "downloaded_file";
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-      }
+            if (response.status === 200) {
+                const blob = new Blob([response.data]);
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = "downloaded_file";
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+            }
+        } else {
+            // ✅ Redirect to GET request for unprotected files
+            window.location.href = `http://localhost:5000/download/${downloadFileId}`;
+        }
     } catch (error) {
-      setDownloadError("Invalid password or file not found.");
+        setDownloadError("Invalid password or file not found.");
     }
-  };
+};
+
 
   return (
     <main className="flex flex-col items-center min-h-screen p-4">
@@ -122,7 +133,12 @@ export default function Home() {
 
       {usePassword && <input type="password" placeholder="Enter password" value={password} onChange={(e) => setPassword(e.target.value)} className="border p-2 mt-2" />}
 
-      {uploadedFile && <p>File link: {uploadedFile}</p>}
+      {uploadedFile && (
+        <div className="mt-4 p-4 bg-white dark:bg-gray-800 shadow rounded">
+          <p>File link:</p>
+          <input className="border p-2 w-full dark:bg-gray-900 dark:border-gray-700 dark:text-white" value={uploadedFile} readOnly onClick={(e) => e.currentTarget.select()} />
+        </div>
+      )}
 
       <h2 className="mt-6 text-xl font-semibold">Download a File</h2>
       <input type="text" placeholder="File ID" value={downloadFileId} onChange={(e) => setDownloadFileId(e.target.value)} className="border p-2 mt-2" />

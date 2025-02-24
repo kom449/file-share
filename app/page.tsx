@@ -11,10 +11,6 @@ export default function Home() {
   const [darkMode, setDarkMode] = useState(false);
   const [usePassword, setUsePassword] = useState(false);
   const [password, setPassword] = useState("");
-  const [downloadPassword, setDownloadPassword] = useState("");
-  const [downloadFileId, setDownloadFileId] = useState("");
-  const [downloadError, setDownloadError] = useState("");
-  const [requiresPassword, setRequiresPassword] = useState(false);
 
   useEffect(() => {
     const theme = localStorage.getItem("theme");
@@ -64,54 +60,51 @@ export default function Home() {
     },
   });
 
-  const checkFileProtection = async () => {
-    setRequiresPassword(false);
-    setDownloadError("");
-
+  const handleDownload = async (fileId: string) => {
     try {
-      const response = await axios.get(`http://localhost:5000/check-password/${downloadFileId}`);
-
-      if (response.data.requiresPassword) {
-        setRequiresPassword(true);
+      const checkResponse = await axios.get(`http://localhost:5000/check-password/${fileId}`);
+  
+      if (checkResponse.data.requiresPassword) {
+        const userPassword = prompt("Enter the password for this file:");
+        if (!userPassword) return;
+  
+        try {
+          const downloadResponse = await axios.post(
+            `http://localhost:5000/download/${fileId}`,
+            { password: userPassword },
+            { responseType: "blob" }
+          );
+  
+          // Now that Content-Disposition is exposed, extract the filename
+          const disposition = downloadResponse.headers["content-disposition"];
+          let filename = "downloaded_file";
+          if (disposition && disposition.includes("filename")) {
+            const filenameRegex = /filename\*?=(?:UTF-8'')?["']?([^;"'\n]+)/;
+            const matches = filenameRegex.exec(disposition);
+            if (matches && matches[1]) {
+              filename = decodeURIComponent(matches[1]);
+            }
+          }
+  
+          const blob = new Blob([downloadResponse.data]);
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          window.URL.revokeObjectURL(url);
+        } catch (error) {
+          alert("Incorrect password or file not found.");
+        }
       } else {
-        window.location.href = `http://localhost:5000/download/${downloadFileId}`;
+        window.location.href = `http://localhost:5000/download/${fileId}`;
       }
     } catch (error) {
-      setDownloadError("File not found.");
+      alert("File not found.");
     }
-  };
-
-  const handleDownload = async () => {
-    setDownloadError("");
-
-    try {
-        if (requiresPassword) {
-            // ✅ Send password in a POST request
-            const response = await axios.post(
-                `http://localhost:5000/download/${downloadFileId}`,
-                { password: downloadPassword },
-                { responseType: "blob" }
-            );
-
-            if (response.status === 200) {
-                const blob = new Blob([response.data]);
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = "downloaded_file";
-                document.body.appendChild(a);
-                a.click();
-                a.remove();
-            }
-        } else {
-            // ✅ Redirect to GET request for unprotected files
-            window.location.href = `http://localhost:5000/download/${downloadFileId}`;
-        }
-    } catch (error) {
-        setDownloadError("Invalid password or file not found.");
-    }
-};
-
+  };  
 
   return (
     <main className="flex flex-col items-center min-h-screen p-4">
@@ -137,21 +130,11 @@ export default function Home() {
         <div className="mt-4 p-4 bg-white dark:bg-gray-800 shadow rounded">
           <p>File link:</p>
           <input className="border p-2 w-full dark:bg-gray-900 dark:border-gray-700 dark:text-white" value={uploadedFile} readOnly onClick={(e) => e.currentTarget.select()} />
+          <button onClick={() => handleDownload(uploadedFile.split("/").pop() || "")} className="mt-2 p-2 bg-green-500 text-white">
+            Download
+          </button>
         </div>
       )}
-
-      <h2 className="mt-6 text-xl font-semibold">Download a File</h2>
-      <input type="text" placeholder="File ID" value={downloadFileId} onChange={(e) => setDownloadFileId(e.target.value)} className="border p-2 mt-2" />
-      <button onClick={checkFileProtection} className="mt-2 p-2 bg-blue-500 text-white">Check File</button>
-
-      {requiresPassword && (
-        <>
-          <input type="password" placeholder="Enter password" value={downloadPassword} onChange={(e) => setDownloadPassword(e.target.value)} className="border p-2 mt-2" />
-          <button onClick={handleDownload} className="mt-2 p-2 bg-green-500 text-white">Download</button>
-        </>
-      )}
-
-      {downloadError && <p className="text-red-500">{downloadError}</p>}
     </main>
   );
 }

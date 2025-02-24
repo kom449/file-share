@@ -13,7 +13,11 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-app.use(cors({ origin: "http://localhost:3000", methods: "GET, POST" }));
+app.use(cors({
+    origin: "http://localhost:3000",
+    methods: "GET, POST",
+    exposedHeaders: ["Content-Disposition"]
+  }));  
 app.use(express.json());
 
 const uploadDir = "D:/FS";
@@ -47,8 +51,11 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 
 app.post("/upload", upload.single("file"), async (req: Request, res: Response) => {
+    const connection = await db.getConnection();
+
     try {
         if (!req.file) {
+            console.error("❌ Upload Error: No file received.");
             res.status(400).json({ error: "No file uploaded" });
             return;
         }
@@ -62,41 +69,38 @@ app.post("/upload", upload.single("file"), async (req: Request, res: Response) =
             passwordHash = await bcrypt.hash(password, saltRounds);
         }
 
-        const filePath = path.join(uploadDir, req.file.filename);
+        const filePath = path.resolve(uploadDir, req.file.filename);
         const fileUrl = `http://localhost:${PORT}/download/${fileId}`;
 
-        await db.query(
+        console.log(`✅ Upload Successful!`);
+        console.log(`📂 File Path: ${filePath}`);
+        console.log(`🆔 File ID: ${fileId}`);
+
+        await connection.beginTransaction();
+
+        await connection.query(
             "INSERT INTO files (id, filename, path, url, password_hash, upload_date) VALUES (?, ?, ?, ?, ?, NOW())",
             [fileId, req.file.filename, filePath, fileUrl, passwordHash]
         );
 
+        await connection.commit();
+        console.log(`✅ Saved to database: ${fileId}`);
+
         res.json({ fileUrl });
     } catch (err) {
+        await connection.rollback();
         console.error("❌ Upload Error:", err);
         res.status(500).json({ error: "Database error" });
-    }
-});
-
-app.get("/check-password/:fileId", async (req: Request, res: Response) => {
-    try {
-        const [rows]: any = await db.query("SELECT password_hash FROM files WHERE id = ?", [req.params.fileId]);
-
-        if (rows.length === 0) {
-            console.error(`❌ File ID not found in database: ${req.params.fileId}`);
-            res.status(404).json({ error: "File not found" });
-            return;
-        }
-
-        res.json({ requiresPassword: !!rows[0].password_hash });
-    } catch (err) {
-        console.error("❌ Check Password Error:", err);
-        res.status(500).json({ error: "Internal server error" });
+    } finally {
+        connection.release();
     }
 });
 
 app.get("/download/:fileId", async (req: Request, res: Response) => {
     try {
-        const [rows]: any = await db.query("SELECT path, password_hash FROM files WHERE id = ?", [req.params.fileId]);
+        console.log(`🔍 Attempting to download file ID: ${req.params.fileId}`);
+
+        const [rows]: any = await db.query("SELECT filename, path, password_hash FROM files WHERE id = ?", [req.params.fileId]);
 
         if (rows.length === 0) {
             console.error(`❌ File ID not found in database: ${req.params.fileId}`);
@@ -110,6 +114,9 @@ app.get("/download/:fileId", async (req: Request, res: Response) => {
         }
 
         const filePath = rows[0].path;
+        const originalFilename = rows[0].filename;
+
+        console.log(`📂 Checking file path: ${filePath}`);
 
         if (!fs.existsSync(filePath)) {
             console.error(`❌ File missing on disk: ${filePath}`);
@@ -117,17 +124,20 @@ app.get("/download/:fileId", async (req: Request, res: Response) => {
             return;
         }
 
-        res.download(filePath);
+        res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(originalFilename)}"`);
+        res.setHeader("Content-Type", "application/octet-stream");
+        res.download(filePath, originalFilename);
     } catch (err) {
         console.error("❌ Download Error:", err);
         res.status(500).json({ error: "Internal server error" });
     }
 });
 
-app.post("/download/:fileId", async (req: Request, res: Response) => {
+app.get("/check-password/:fileId", async (req: Request, res: Response) => {
     try {
-        const { password } = req.body;
-        const [rows]: any = await db.query("SELECT path, password_hash FROM files WHERE id = ?", [req.params.fileId]);
+        console.log(`🔍 Checking password for File ID: ${req.params.fileId}`);
+
+        const [rows]: any = await db.query("SELECT password_hash FROM files WHERE id = ?", [req.params.fileId]);
 
         if (rows.length === 0) {
             console.error(`❌ File ID not found in database: ${req.params.fileId}`);
@@ -135,30 +145,63 @@ app.post("/download/:fileId", async (req: Request, res: Response) => {
             return;
         }
 
-        if (!rows[0].password_hash) {
-            res.status(403).json({ error: "This file does not require a password. Use GET request." });
-            return;
-        }
-
-        const passwordMatch = await bcrypt.compare(password, rows[0].password_hash);
-        if (!passwordMatch) {
-            res.status(403).json({ error: "Invalid password" });
-            return;
-        }
-
-        const filePath = rows[0].path;
-
-        if (!fs.existsSync(filePath)) {
-            console.error(`❌ File missing on disk: ${filePath}`);
-            res.status(404).json({ error: "File not found on server" });
-            return;
-        }
-
-        res.download(filePath);
+        console.log(`✅ File found, password required: ${!!rows[0].password_hash}`);
+        res.json({ requiresPassword: !!rows[0].password_hash });
     } catch (err) {
-        console.error("❌ Download Error:", err);
+        console.error("❌ Check Password Error:", err);
         res.status(500).json({ error: "Internal server error" });
     }
 });
+
+app.post("/download/:fileId", (req: Request, res: Response) => {
+    (async () => {
+      console.log(`🔍 Attempting to download password-protected file ID: ${req.params.fileId}`);
+  
+      const { password } = req.body;
+      const [rows]: any = await db.query(
+        "SELECT filename, path, password_hash FROM files WHERE id = ?",
+        [req.params.fileId]
+      );
+  
+      if (rows.length === 0) {
+        console.error(`❌ File ID not found in database: ${req.params.fileId}`);
+        return res.status(404).json({ error: "File not found" });
+      }
+  
+      if (!rows[0].password_hash) {
+        return res.status(403).json({ error: "This file does not require a password. Use GET request." });
+      }
+  
+      const passwordMatch = await bcrypt.compare(password, rows[0].password_hash);
+      if (!passwordMatch) {
+        return res.status(403).json({ error: "Invalid password" });
+      }
+  
+      const filePath = rows[0].path;
+      const originalFilename = rows[0].filename;
+  
+      console.log(`📂 Checking file path: ${filePath}`);
+      if (!fs.existsSync(filePath)) {
+        console.error(`❌ File missing on disk: ${filePath}`);
+        return res.status(404).json({ error: "File not found on server" });
+      }
+  
+      // Manually set the Content-Disposition header to ensure the filename is correct.
+      res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(originalFilename)}"`);
+      res.setHeader("Content-Type", "application/octet-stream");
+  
+      // Use res.download to stream the file.
+      res.download(filePath, originalFilename, (err) => {
+        if (err) {
+          console.error("❌ Download Error:", err);
+          return res.status(500).json({ error: "Internal server error" });
+        }
+      });
+    })().catch(err => {
+      console.error("❌ Download Error:", err);
+      res.status(500).json({ error: "Internal server error" });
+    });
+  });
+  
 
 app.listen(PORT, () => console.log(`🚀 Server running on http://localhost:${PORT}`));

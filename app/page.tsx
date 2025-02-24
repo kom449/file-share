@@ -9,8 +9,13 @@ export default function Home() {
   const [uploadedFile, setUploadedFile] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [darkMode, setDarkMode] = useState(false);
+  const [usePassword, setUsePassword] = useState(false);
+  const [password, setPassword] = useState("");
+  const [downloadPassword, setDownloadPassword] = useState("");
+  const [downloadFileId, setDownloadFileId] = useState("");
+  const [downloadError, setDownloadError] = useState("");
+  const [requiresPassword, setRequiresPassword] = useState(false);
 
-  // ✅ Load theme from localStorage and apply the correct class
   useEffect(() => {
     const theme = localStorage.getItem("theme");
     if (theme === "dark") {
@@ -19,7 +24,6 @@ export default function Home() {
     }
   }, []);
 
-  // ✅ Toggle Dark Mode and update localStorage
   const toggleDarkMode = () => {
     if (darkMode) {
       document.documentElement.classList.remove("dark");
@@ -38,6 +42,7 @@ export default function Home() {
 
       const formData = new FormData();
       formData.append("file", file);
+      if (usePassword) formData.append("password", password);
 
       try {
         const response = await axios.post("http://localhost:5000/upload", formData, {
@@ -51,58 +56,86 @@ export default function Home() {
 
         if (response.data.fileUrl) {
           setUploadedFile(response.data.fileUrl);
-          setUploadProgress(null); // Reset progress after upload
+          setUploadProgress(null);
         }
       } catch (error) {
-        console.error("Upload error:", error);
-        setUploadProgress(null); // Reset on error
+        setUploadProgress(null);
       }
     },
   });
 
+  const checkFileProtection = async () => {
+    setRequiresPassword(false);
+    setDownloadError("");
+
+    try {
+      const response = await axios.get(`http://localhost:5000/check-password/${downloadFileId}`);
+
+      if (response.data.requiresPassword) {
+        setRequiresPassword(true);
+      } else {
+        handleDownload();
+      }
+    } catch (error) {
+      setDownloadError("File not found.");
+    }
+  };
+
+  const handleDownload = async () => {
+    setDownloadError("");
+
+    try {
+      const response = await axios.post(`http://localhost:5000/download/${downloadFileId}`, { password: downloadPassword });
+
+      if (response.status === 200) {
+        const blob = new Blob([response.data]);
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "downloaded_file";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      }
+    } catch (error) {
+      setDownloadError("Invalid password or file not found.");
+    }
+  };
+
   return (
-    <main className="flex flex-col items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100 p-4 transition-all">
-      {/* ✅ Dark Mode Toggle Button */}
-      <button
-        onClick={toggleDarkMode}
-        className="absolute top-5 right-5 p-2 rounded-full bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 transition"
-      >
+    <main className="flex flex-col items-center min-h-screen p-4">
+      <button onClick={toggleDarkMode} className="absolute top-5 right-5 p-2 rounded-full bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 transition">
         {darkMode ? <SunIcon className="w-6 h-6 text-yellow-400" /> : <MoonIcon className="w-6 h-6 text-gray-800 dark:text-white" />}
       </button>
 
-      <h1 className="text-4xl font-bold">Simple File Sharing</h1>
-      <p className="text-gray-600 dark:text-gray-300 mt-2">Drag, drop, and share files easily</p>
+      <h1 className="text-4xl font-bold">Secure File Sharing</h1>
 
-      {/* Drag & Drop Upload Area */}
-      <div {...getRootProps()} className="mt-6 p-10 border-2 border-dashed border-gray-300 dark:border-gray-500 rounded-lg cursor-pointer bg-white dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition">
+      <div {...getRootProps()} className="mt-6 p-10 border-2 border-dashed rounded-lg cursor-pointer">
         <input {...getInputProps()} />
-        <p className="text-gray-700 dark:text-gray-300">Drag & drop a file or click to upload</p>
+        <p>Drag & drop a file or click to upload</p>
       </div>
 
-      {/* Upload Progress Bar */}
-      {uploadProgress !== null && (
-        <div className="mt-4 w-full max-w-md bg-gray-200 dark:bg-gray-700 rounded-full">
-          <div
-            className="bg-blue-500 text-xs font-medium text-white text-center p-1 leading-none rounded-full transition-all duration-300"
-            style={{ width: `${uploadProgress}%` }}
-          >
-            {uploadProgress}%
-          </div>
-        </div>
+      <div className="mt-4 flex items-center space-x-2">
+        <input type="checkbox" checked={usePassword} onChange={() => setUsePassword(!usePassword)} />
+        <label>Enable password protection</label>
+      </div>
+
+      {usePassword && <input type="password" placeholder="Enter password" value={password} onChange={(e) => setPassword(e.target.value)} className="border p-2 mt-2" />}
+
+      {uploadedFile && <p>File link: {uploadedFile}</p>}
+
+      <h2 className="mt-6 text-xl font-semibold">Download a File</h2>
+      <input type="text" placeholder="File ID" value={downloadFileId} onChange={(e) => setDownloadFileId(e.target.value)} className="border p-2 mt-2" />
+      <button onClick={checkFileProtection} className="mt-2 p-2 bg-blue-500 text-white">Check File</button>
+
+      {requiresPassword && (
+        <>
+          <input type="password" placeholder="Enter password" value={downloadPassword} onChange={(e) => setDownloadPassword(e.target.value)} className="border p-2 mt-2" />
+          <button onClick={handleDownload} className="mt-2 p-2 bg-green-500 text-white">Download</button>
+        </>
       )}
 
-      {/* File Link Display */}
-      {uploadedFile && (
-        <div className="mt-4 p-4 bg-white dark:bg-gray-800 shadow rounded">
-          <p>Share this link:</p>
-          <input
-            className="border p-2 w-full dark:bg-gray-900 dark:border-gray-700 dark:text-white"
-            value={uploadedFile}
-            readOnly
-            onClick={(e) => e.currentTarget.select()}
-          />
-        </div>
-      )}
+      {downloadError && <p className="text-red-500">{downloadError}</p>}
     </main>
   );
 }

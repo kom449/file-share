@@ -1,39 +1,27 @@
-import express, { Request, Response, NextFunction } from "express";
+import express, { Request, Response } from "express";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
 import mysql from "mysql2/promise";
 import dotenv from "dotenv";
 import cors from "cors";
-import { v4 as uuidv4 } from "uuid"; // ✅ Import UUID generator
+import { v4 as uuidv4 } from "uuid";
+import bcrypt from "bcrypt";
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// ✅ Enable CORS
-app.use(cors({
-    origin: "http://localhost:3000",
-    methods: "GET, POST",
-    allowedHeaders: ["Content-Type"],
-    credentials: true
-}));
-
+app.use(cors({ origin: "http://localhost:3000", methods: "GET, POST", allowedHeaders: ["Content-Type"], credentials: true }));
 app.use(express.json());
 
-// ✅ Set file storage location to D:/FS
-const uploadDir = "D:/FS"; 
+const uploadDir = "D:/FS";
 
-// ✅ Ensure 'D:/FS' directory exists
 if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir, { recursive: true });
-    console.log(`📁 Created upload directory at ${uploadDir}`);
-} else {
-    console.log(`📁 Upload directory exists: ${uploadDir}`);
 }
 
-// ✅ Connect to MySQL
 const db = mysql.createPool({
     host: process.env.DB_HOST,
     user: process.env.DB_USER,
@@ -48,49 +36,46 @@ db.getConnection()
     .then(() => console.log("✅ Connected to MySQL"))
     .catch(err => console.error("❌ MySQL connection error:", err));
 
-// ✅ Multer Storage (Saves to D:/FS)
 const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        cb(null, uploadDir); // ✅ Store files in D:/FS
-    },
-    filename: (req, file, cb) => {
-        const uniqueName = `${Date.now()}-${file.originalname}`;
-        cb(null, uniqueName);
-    },
+    destination: (req, file, cb) => cb(null, uploadDir),
+    filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`)
 });
 
 const upload = multer({ storage });
 
-// ✅ Upload Route (Generates Random Link)
-app.post("/upload", upload.single("file"), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+app.post("/upload", upload.single("file"), async (req: Request, res: Response) => {
     try {
         if (!req.file) {
             res.status(400).json({ error: "No file uploaded" });
             return;
         }
 
-        // ✅ Generate a unique ID for the file
         const fileId = uuidv4();
+        const { password } = req.body;
+        let passwordHash = null;
+
+        if (password) {
+            const saltRounds = 10;
+            passwordHash = await bcrypt.hash(password, saltRounds);
+        }
+
         const fileUrl = `http://localhost:${PORT}/download/${fileId}`;
 
-        // ✅ Store in MySQL with new storage path
         await db.query(
-            "INSERT INTO files (id, filename, path, url, upload_date) VALUES (?, ?, ?, ?, NOW())",
-            [fileId, req.file.filename, path.join(uploadDir, req.file.filename), fileUrl]
+            "INSERT INTO files (id, filename, path, url, password_hash, upload_date) VALUES (?, ?, ?, ?, ?, NOW())",
+            [fileId, req.file.filename, path.join(uploadDir, req.file.filename), fileUrl, passwordHash]
         );
 
-        console.log(`✅ File uploaded: ${req.file.filename} → ${fileUrl}`);
         res.json({ fileUrl });
     } catch (err) {
-        console.error("❌ Upload Error:", err);
         res.status(500).json({ error: "Database error" });
     }
 });
 
-// ✅ Download Route (Using UUID Instead of Filename)
-app.get("/download/:fileId", async (req: Request, res: Response, next: NextFunction) => {
+app.post("/download/:fileId", async (req: Request, res: Response) => {
     try {
-        const [rows]: any = await db.query("SELECT path FROM files WHERE id = ?", [req.params.fileId]);
+        const { password } = req.body;
+        const [rows]: any = await db.query("SELECT path, password_hash FROM files WHERE id = ?", [req.params.fileId]);
 
         if (rows.length === 0) {
             res.status(404).json({ error: "File not found" });
@@ -98,12 +83,40 @@ app.get("/download/:fileId", async (req: Request, res: Response, next: NextFunct
         }
 
         const filePath = rows[0].path;
+        const storedHash = rows[0].password_hash;
+
+        if (storedHash) {
+            if (!password) {
+                res.status(403).json({ error: "Password required" });
+                return;
+            }
+
+            const passwordMatch = await bcrypt.compare(password, storedHash);
+            if (!passwordMatch) {
+                res.status(403).json({ error: "Invalid password" });
+                return;
+            }
+        }
+
         res.download(filePath);
     } catch (err) {
-        console.error("❌ Download Error:", err);
         res.status(500).json({ error: "Internal server error" });
     }
 });
 
-// ✅ Start Server
+app.get("/check-password/:fileId", async (req: Request, res: Response) => {
+    try {
+        const [rows]: any = await db.query("SELECT password_hash FROM files WHERE id = ?", [req.params.fileId]);
+
+        if (rows.length === 0) {
+            res.status(404).json({ error: "File not found" });
+            return;
+        }
+
+        res.json({ requiresPassword: !!rows[0].password_hash });
+    } catch (err) {
+        res.status(500).json({ error: "Internal server error" });
+    }
+});
+
 app.listen(PORT, () => console.log(`🚀 Server running on http://localhost:${PORT}`));

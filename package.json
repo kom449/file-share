@@ -6,12 +6,13 @@
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "build:server": "esbuild server/server.ts --bundle --platform=node --target=node18 --outfile=bundle.js --external:mock-aws-s3 --external:aws-sdk --external:nock --external:@mapbox/node-pre-gyp --loader:.html=text --loader:.json=json"
   },
   "dependencies": {
     "@heroicons/react": "^2.2.0",
     "axios": "^1.7.9",
-    "bcrypt": "^5.1.1",
+    "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
@@ -35,6 +36,7 @@
     "@types/react-dropzone": "^4.2.2",
     "@types/uuid": "^10.0.0",
     "autoprefixer": "^10.4.20",
+    "esbuild": "^0.25.0",
     "eslint": "^9",
     "eslint-config-next": "15.1.7",
     "postcss": "^8.5.3",

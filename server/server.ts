@@ -6,15 +6,16 @@ import mysql from "mysql2/promise";
 import dotenv from "dotenv";
 import cors from "cors";
 import { v4 as uuidv4 } from "uuid";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Updated CORS: Allow only your production domain
 app.use(cors({
-    origin: "http://localhost:3000",
+    origin: "https://share.birdie.codes",
     methods: "GET, POST",
     exposedHeaders: ["Content-Disposition"]
 }));
@@ -51,6 +52,7 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
+// Helper to render a styled password prompt page
 const renderPasswordPrompt = (fileId: string, errorMessage?: string): string => `
   <!DOCTYPE html>
   <html lang="en">
@@ -137,12 +139,12 @@ app.post("/upload", upload.single("file"), async (req: Request, res: Response) =
             passwordHash = await bcrypt.hash(password, saltRounds);
         }
 
-        const filePath = path.resolve(uploadDir, req.file.filename);
-        const fileUrl = `http://localhost:${PORT}/download/${fileId}`;
+        // Updated fileUrl to use production domain
+        const fileUrl = `https://share.birdie.codes/download/${fileId}`;
         await connection.beginTransaction();
         await connection.query(
             "INSERT INTO files (id, filename, path, url, password_hash, upload_date) VALUES (?, ?, ?, ?, ?, NOW())",
-            [fileId, req.file.filename, filePath, fileUrl, passwordHash]
+            [fileId, req.file.filename, path.resolve(uploadDir, req.file.filename), fileUrl, passwordHash]
         );
 
         await connection.commit();

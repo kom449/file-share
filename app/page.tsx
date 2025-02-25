@@ -46,7 +46,8 @@ export default function Home() {
 
       setIsLoading(true);
       try {
-        const response = await axios.post("http://localhost:5000/upload", formData, {
+        // Use relative URL so the request goes to the same origin.
+        const response = await axios.post("/upload", formData, {
           onUploadProgress: (progressEvent) => {
             if (progressEvent.total) {
               const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
@@ -81,7 +82,8 @@ export default function Home() {
     const fileId = parts[parts.length - 1];
 
     try {
-      const response = await axios.get(`http://localhost:5000/check-password/${fileId}`);
+      // Use relative URL for API call.
+      const response = await axios.get(`/check-password/${fileId}`);
       if (response.data.requiresPassword) {
         setShowPasswordPrompt(true);
       } else {
@@ -98,7 +100,8 @@ export default function Home() {
     const fileId = parts[parts.length - 1];
 
     try {
-      const response = await axios.post(`http://localhost:5000/download/${fileId}`, { password: downloadPassword }, {
+      // Use relative URL for password submission.
+      const response = await axios.post(`/download/${fileId}`, { password: downloadPassword }, {
         responseType: 'blob'
       });
 

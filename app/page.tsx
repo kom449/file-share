@@ -13,8 +13,6 @@ export default function Home() {
   const [password, setPassword] = useState("");
   const [copied, setCopied] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-
-  // New state for download password prompt
   const [showPasswordPrompt, setShowPasswordPrompt] = useState(false);
   const [downloadPassword, setDownloadPassword] = useState("");
 
@@ -77,7 +75,6 @@ export default function Home() {
     }
   };
 
-  // Function to handle download button click
   const handleDownload = async () => {
     if (!uploadedFile) return;
     const parts = uploadedFile.split('/');
@@ -86,10 +83,8 @@ export default function Home() {
     try {
       const response = await axios.get(`http://localhost:5000/check-password/${fileId}`);
       if (response.data.requiresPassword) {
-        // Prompt for password if required
         setShowPasswordPrompt(true);
       } else {
-        // Direct download if no password required
         window.location.href = uploadedFile;
       }
     } catch (err) {
@@ -97,7 +92,6 @@ export default function Home() {
     }
   };
 
-  // Function to handle password submission for download
   const handlePasswordSubmit = async () => {
     if (!uploadedFile) return;
     const parts = uploadedFile.split('/');
@@ -108,7 +102,6 @@ export default function Home() {
         responseType: 'blob'
       });
 
-      // Extract filename from response headers if available
       let filename = "downloaded_file";
       const contentDisposition = response.headers['content-disposition'];
       if (contentDisposition) {
@@ -118,7 +111,6 @@ export default function Home() {
         }
       }
 
-      // Create blob URL and trigger download
       const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/octet-stream' }));
       const link = document.createElement('a');
       link.href = url;
@@ -128,7 +120,6 @@ export default function Home() {
       link.remove();
       window.URL.revokeObjectURL(url);
 
-      // Reset password prompt state
       setShowPasswordPrompt(false);
       setDownloadPassword("");
     } catch (err) {

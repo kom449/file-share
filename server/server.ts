@@ -18,9 +18,7 @@ app.use(cors({
     methods: "GET, POST",
     exposedHeaders: ["Content-Disposition"]
 }));
-// To handle JSON bodies
 app.use(express.json());
-// To handle URL-encoded form data from HTML forms
 app.use(express.urlencoded({ extended: true }));
 
 const uploadDir = "D:/FS";
@@ -53,7 +51,6 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
-// Helper function to render a styled password prompt.
 const renderPasswordPrompt = (fileId: string, errorMessage?: string): string => `
   <!DOCTYPE html>
   <html lang="en">
@@ -159,7 +156,6 @@ app.post("/upload", upload.single("file"), async (req: Request, res: Response) =
     }
 });
 
-// GET route for file download or to display the password prompt.
 app.get("/download/:fileId", async (req: Request, res: Response) => {
     console.log(`GET /download/${req.params.fileId} route hit`);
     try {
@@ -173,10 +169,8 @@ app.get("/download/:fileId", async (req: Request, res: Response) => {
         }
         const file = rows[0];
         if (file.password_hash) {
-            // Render the password prompt page.
             res.send(renderPasswordPrompt(req.params.fileId));
         } else {
-            // Directly download the file.
             const filePath = file.path;
             const originalFilename = file.filename;
             if (!fs.existsSync(filePath)) {
@@ -193,7 +187,6 @@ app.get("/download/:fileId", async (req: Request, res: Response) => {
     }
 });
 
-// POST route for handling password submission and file download.
 app.post("/download/:fileId", async (req: Request, res: Response): Promise<void> => {
     console.log(`POST /download/${req.params.fileId} route hit`);
     try {
@@ -213,7 +206,6 @@ app.post("/download/:fileId", async (req: Request, res: Response): Promise<void>
         }
         const passwordMatch = await bcrypt.compare(password, file.password_hash);
         if (!passwordMatch) {
-            // Render the prompt with an error message.
             res.send(renderPasswordPrompt(req.params.fileId, "Invalid password. Please try again."));
             return;
         }
@@ -236,7 +228,6 @@ app.post("/download/:fileId", async (req: Request, res: Response): Promise<void>
     }
 });
 
-// Endpoint to check if a password is required.
 app.get("/check-password/:fileId", async (req: Request, res: Response) => {
     try {
         const [rows]: any = await db.query("SELECT password_hash FROM files WHERE id = ?", [req.params.fileId]);

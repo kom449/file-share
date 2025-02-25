@@ -17,8 +17,11 @@ app.use(cors({
     origin: "http://localhost:3000",
     methods: "GET, POST",
     exposedHeaders: ["Content-Disposition"]
-  }));  
+}));
+// To handle JSON bodies
 app.use(express.json());
+// To handle URL-encoded form data from HTML forms
+app.use(express.urlencoded({ extended: true }));
 
 const uploadDir = "D:/FS";
 
@@ -49,6 +52,75 @@ const storage = multer.diskStorage({
 });
 
 const upload = multer({ storage });
+
+// Helper function to render a styled password prompt.
+const renderPasswordPrompt = (fileId: string, errorMessage?: string): string => `
+  <!DOCTYPE html>
+  <html lang="en">
+  <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Password Required</title>
+      <style>
+          body {
+              font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+              margin: 0;
+              padding: 0;
+              background: #f7f7f7;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              height: 100vh;
+          }
+          .container {
+              background: #fff;
+              padding: 40px;
+              border-radius: 8px;
+              box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+              text-align: center;
+              width: 300px;
+          }
+          h2 {
+              margin-bottom: 20px;
+              color: #333;
+          }
+          input[type="password"] {
+              width: 100%;
+              padding: 10px;
+              margin-bottom: 20px;
+              border: 1px solid #ccc;
+              border-radius: 4px;
+          }
+          button {
+              background-color: #4CAF50;
+              color: white;
+              padding: 10px 20px;
+              border: none;
+              border-radius: 4px;
+              cursor: pointer;
+              font-size: 16px;
+          }
+          button:hover {
+              background-color: #45a049;
+          }
+          .error {
+              color: red;
+              margin-bottom: 10px;
+          }
+      </style>
+  </head>
+  <body>
+      <div class="container">
+          <h2>Password Required</h2>
+          ${errorMessage ? `<p class="error">${errorMessage}</p>` : ""}
+          <form method="POST" action="/download/${fileId}">
+              <input type="password" name="password" placeholder="Enter password" required>
+              <button type="submit">Submit</button>
+          </form>
+      </div>
+  </body>
+  </html>
+`;
 
 app.post("/upload", upload.single("file"), async (req: Request, res: Response) => {
     const connection = await db.getConnection();
@@ -87,91 +159,95 @@ app.post("/upload", upload.single("file"), async (req: Request, res: Response) =
     }
 });
 
+// GET route for file download or to display the password prompt.
 app.get("/download/:fileId", async (req: Request, res: Response) => {
+    console.log(`GET /download/${req.params.fileId} route hit`);
     try {
-        const [rows]: any = await db.query("SELECT filename, path, password_hash FROM files WHERE id = ?", [req.params.fileId]);
-
+        const [rows]: any = await db.query(
+            "SELECT filename, path, password_hash FROM files WHERE id = ?",
+            [req.params.fileId]
+        );
         if (rows.length === 0) {
-            res.status(404).json({ error: "File not found" });
+            res.status(404).send("File not found");
             return;
         }
-
-        if (rows[0].password_hash) {
-            res.status(403).json({ error: "Password required" });
-            return;
+        const file = rows[0];
+        if (file.password_hash) {
+            // Render the password prompt page.
+            res.send(renderPasswordPrompt(req.params.fileId));
+        } else {
+            // Directly download the file.
+            const filePath = file.path;
+            const originalFilename = file.filename;
+            if (!fs.existsSync(filePath)) {
+                res.status(404).send("File not found on server");
+                return;
+            }
+            res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(originalFilename)}"`);
+            res.setHeader("Content-Type", "application/octet-stream");
+            res.download(filePath, originalFilename);
         }
-
-        const filePath = rows[0].path;
-        const originalFilename = rows[0].filename;
-
-        if (!fs.existsSync(filePath)) {
-            res.status(404).json({ error: "File not found on server" });
-            return;
-        }
-
-        res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(originalFilename)}"`);
-        res.setHeader("Content-Type", "application/octet-stream");
-        res.download(filePath, originalFilename);
     } catch (err) {
-        res.status(500).json({ error: "Internal server error" });
+        console.error("GET /download error:", err);
+        res.status(500).send("Internal server error");
     }
 });
 
+// POST route for handling password submission and file download.
+app.post("/download/:fileId", async (req: Request, res: Response): Promise<void> => {
+    console.log(`POST /download/${req.params.fileId} route hit`);
+    try {
+        const { password } = req.body;
+        const [rows]: any = await db.query(
+            "SELECT filename, path, password_hash FROM files WHERE id = ?",
+            [req.params.fileId]
+        );
+        if (rows.length === 0) {
+            res.status(404).send("File not found");
+            return;
+        }
+        const file = rows[0];
+        if (!file.password_hash) {
+            res.status(403).send("This file does not require a password. Use GET request.");
+            return;
+        }
+        const passwordMatch = await bcrypt.compare(password, file.password_hash);
+        if (!passwordMatch) {
+            // Render the prompt with an error message.
+            res.send(renderPasswordPrompt(req.params.fileId, "Invalid password. Please try again."));
+            return;
+        }
+        const filePath = file.path;
+        const originalFilename = file.filename;
+        if (!fs.existsSync(filePath)) {
+            res.status(404).send("File not found on server");
+            return;
+        }
+        res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(originalFilename)}"`);
+        res.setHeader("Content-Type", "application/octet-stream");
+        res.download(filePath, originalFilename, (err) => {
+            if (err) {
+                res.status(500).send("Internal server error");
+            }
+        });
+    } catch (err) {
+        console.error("POST /download error:", err);
+        res.status(500).send("Internal server error");
+    }
+});
+
+// Endpoint to check if a password is required.
 app.get("/check-password/:fileId", async (req: Request, res: Response) => {
     try {
         const [rows]: any = await db.query("SELECT password_hash FROM files WHERE id = ?", [req.params.fileId]);
-
         if (rows.length === 0) {
             res.status(404).json({ error: "File not found" });
             return;
         }
-
         res.json({ requiresPassword: !!rows[0].password_hash });
     } catch (err) {
         res.status(500).json({ error: "Internal server error" });
     }
 });
-
-app.post("/download/:fileId", (req: Request, res: Response) => {
-    (async () => {  
-      const { password } = req.body;
-      const [rows]: any = await db.query(
-        "SELECT filename, path, password_hash FROM files WHERE id = ?",
-        [req.params.fileId]
-      );
-  
-      if (rows.length === 0) {
-        return res.status(404).json({ error: "File not found" });
-      }
-  
-      if (!rows[0].password_hash) {
-        return res.status(403).json({ error: "This file does not require a password. Use GET request." });
-      }
-  
-      const passwordMatch = await bcrypt.compare(password, rows[0].password_hash);
-      if (!passwordMatch) {
-        return res.status(403).json({ error: "Invalid password" });
-      }
-  
-      const filePath = rows[0].path;
-      const originalFilename = rows[0].filename;
-  
-      if (!fs.existsSync(filePath)) {
-        return res.status(404).json({ error: "File not found on server" });
-      }
-  
-      res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(originalFilename)}"`);
-      res.setHeader("Content-Type", "application/octet-stream");
-  
-      res.download(filePath, originalFilename, (err) => {
-        if (err) {
-          return res.status(500).json({ error: "Internal server error" });
-        }
-      });
-    })().catch(err => {
-      res.status(500).json({ error: "Internal server error" });
-    });
-  });
-  
 
 app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
